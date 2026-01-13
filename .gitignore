@@ -1,0 +1,21 @@
+# Sensitive credentials - DO NOT COMMIT
+youtube_credentials.json
+youtube_token.json
+*.credentials.json
+*.token.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Environment variables
+.env
+.env.local
+.env.*.local
