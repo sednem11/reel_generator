@@ -514,7 +514,8 @@ function QuickEditModal({ isOpen, onClose, videoUrl, videoType, videoIndex, jobI
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'ngrok-skip-browser-warning': 'true'
         },
         body: JSON.stringify({
           video_type: videoType,

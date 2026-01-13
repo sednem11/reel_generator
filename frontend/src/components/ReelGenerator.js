@@ -48,7 +48,10 @@ function ReelGenerator({ interactiveClothRef }) {
       // Check main reel
       if (results.main_reel) {
         const response = await fetch(`${API_BASE_URL}/api/job/${jobIdToCheck}/is_edited?video_type=main_reel`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'ngrok-skip-browser-warning': 'true'
+          }
         });
         if (response.ok) {
           const data = await response.json();
@@ -61,7 +64,10 @@ function ReelGenerator({ interactiveClothRef }) {
         edited.medium_reel = [];
         for (let i = 0; i < results.medium_reels.length; i++) {
           const response = await fetch(`${API_BASE_URL}/api/job/${jobIdToCheck}/is_edited?video_type=medium_reel&video_index=${i}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'ngrok-skip-browser-warning': 'true'
+            }
           });
           if (response.ok) {
             const data = await response.json();
@@ -77,7 +83,10 @@ function ReelGenerator({ interactiveClothRef }) {
         edited.short_reel = [];
         for (let i = 0; i < results.short_reels.length; i++) {
           const response = await fetch(`${API_BASE_URL}/api/job/${jobIdToCheck}/is_edited?video_type=short_reel&video_index=${i}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'ngrok-skip-browser-warning': 'true'
+            }
           });
           if (response.ok) {
             const data = await response.json();
@@ -112,7 +121,8 @@ function ReelGenerator({ interactiveClothRef }) {
         const token = localStorage.getItem('token');
         const response = await fetch(downloadPath, {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${token}`,
+            'ngrok-skip-browser-warning': 'true'
           }
         });
         
@@ -142,7 +152,8 @@ function ReelGenerator({ interactiveClothRef }) {
         const token = localStorage.getItem('token');
         const response = await fetch(downloadPath, {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${token}`,
+            'ngrok-skip-browser-warning': 'true'
           }
         });
         
@@ -696,7 +707,8 @@ function ReelGenerator({ interactiveClothRef }) {
       const token = localStorage.getItem('token');
       const response = await fetch(downloadPath, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'ngrok-skip-browser-warning': 'true'
         }
       });
       

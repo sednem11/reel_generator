@@ -3,6 +3,9 @@ import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
+// Set ngrok bypass header globally for all axios requests
+axios.defaults.headers.common['ngrok-skip-browser-warning'] = 'true';
+
 const AuthContext = createContext(null);
 
 export const useAuth = () => {
@@ -30,6 +33,7 @@ export const AuthProvider = ({ children }) => {
       } else {
         console.log('No token, clearing auth');
         delete axios.defaults.headers.common['Authorization'];
+        // Keep ngrok header even when logged out
         localStorage.removeItem('token');
         setUser(null);
         setLoading(false);
