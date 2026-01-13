@@ -28,8 +28,12 @@ function Login() {
       // Token received from OAuth callback - store it and update auth context
       localStorage.setItem('token', token);
       setTokenFromOAuth(token);
-      // Navigate to home page
-      navigate('/', { replace: true });
+      
+      // Navigate after a short delay to allow AuthContext to initialize
+      // The ProtectedRoute will show loading spinner while user data is fetched
+      setTimeout(() => {
+        navigate('/', { replace: true });
+      }, 100);
     }
   }, [searchParams, setTokenFromOAuth, navigate]);
   
