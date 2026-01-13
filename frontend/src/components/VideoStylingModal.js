@@ -25,8 +25,6 @@ function VideoStylingModal({ isOpen, onClose, fontStyle, fontColor, onFontStyleC
   // Animation state for word-by-word subtitle display
   const [currentWords, setCurrentWords] = useState([]);
   
-  // All words in sequence (matching video behavior: max 5 words per line, then next line, then clear)
-  const allWords = ['This', 'is', 'how', 'your', 'subtitles', 'will', 'look', 'in', 'videos'];
   const maxWordsPerLine = 5;
 
   // Animation effect - word-by-word display (looping like a GIF, matching video behavior)
@@ -35,6 +33,9 @@ function VideoStylingModal({ isOpen, onClose, fontStyle, fontColor, onFontStyleC
       setCurrentWords([]);
       return;
     }
+
+    // All words in sequence (matching video behavior: max 5 words per line, then next line, then clear)
+    const allWords = ['This', 'is', 'how', 'your', 'subtitles', 'will', 'look', 'in', 'videos'];
 
     let wordIndex = 0;
     let line1Words = [];
@@ -100,7 +101,7 @@ function VideoStylingModal({ isOpen, onClose, fontStyle, fontColor, onFontStyleC
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [isOpen, fontStyle, fontColor, allWords]); // Restart animation when style/color changes
+  }, [isOpen, fontStyle, fontColor]); // Restart animation when style/color changes
 
   // Early return after hooks
   if (!isOpen) return null;

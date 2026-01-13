@@ -39,6 +39,159 @@ function ReelGenerator({ interactiveClothRef }) {
   const abortControllerRef = useRef(null); // For cancelling ongoing requests
   const isCancellingRef = useRef(false); // Track if cancellation is in progress
 
+  // Check which videos have been edited
+  const checkEditedVideos = useCallback(async (jobIdToCheck, results) => {
+    const edited = {};
+    const token = localStorage.getItem('token');
+    
+    try {
+      // Check main reel
+      if (results.main_reel) {
+        const response = await fetch(`${API_BASE_URL}/api/job/${jobIdToCheck}/is_edited?video_type=main_reel`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          edited.main_reel = data.is_edited;
+        }
+      }
+      
+      // Check medium reels
+      if (results.medium_reels && results.medium_reels.length > 0) {
+        edited.medium_reel = [];
+        for (let i = 0; i < results.medium_reels.length; i++) {
+          const response = await fetch(`${API_BASE_URL}/api/job/${jobIdToCheck}/is_edited?video_type=medium_reel&video_index=${i}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            edited.medium_reel[i] = data.is_edited;
+          } else {
+            edited.medium_reel[i] = false;
+          }
+        }
+      }
+      
+      // Check short reels
+      if (results.short_reels && results.short_reels.length > 0) {
+        edited.short_reel = [];
+        for (let i = 0; i < results.short_reels.length; i++) {
+          const response = await fetch(`${API_BASE_URL}/api/job/${jobIdToCheck}/is_edited?video_type=short_reel&video_index=${i}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            edited.short_reel[i] = data.is_edited;
+          } else {
+            edited.short_reel[i] = false;
+          }
+        }
+      }
+      
+      setEditedVideos(edited);
+    } catch (error) {
+      console.error('Error checking edited videos:', error);
+    }
+  }, []);
+
+  // Load video URLs using authenticated fetch and create blob URLs
+  const loadVideoUrls = useCallback(async (jobIdToLoad, results) => {
+    const urls = {};
+    const editedUrls = {};
+    
+    // Helper function to fetch video and create blob URL
+    const createVideoBlobUrl = async (fileType, index = null, useOriginal = true) => {
+      try {
+        let downloadPath;
+        if (index !== null) {
+          downloadPath = `${API_BASE_URL}/api/job/${jobIdToLoad}/download/${fileType}_${index}${useOriginal ? '?original=true' : ''}`;
+        } else {
+          downloadPath = `${API_BASE_URL}/api/job/${jobIdToLoad}/download/${fileType}${useOriginal ? '?original=true' : ''}`;
+        }
+        
+        const token = localStorage.getItem('token');
+        const response = await fetch(downloadPath, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+      } catch (err) {
+        console.error(`Error loading video ${fileType}${index !== null ? `_${index}` : ''}:`, err);
+        return null;
+      }
+    };
+    
+    // Helper function to fetch edited video
+    const createEditedVideoBlobUrl = async (fileType, index = null) => {
+      try {
+        let downloadPath;
+        const editedFileType = `${fileType}_edited`;
+        if (index !== null) {
+          downloadPath = `${API_BASE_URL}/api/job/${jobIdToLoad}/download/${editedFileType}_${index}`;
+        } else {
+          downloadPath = `${API_BASE_URL}/api/job/${jobIdToLoad}/download/${editedFileType}`;
+        }
+        
+        const token = localStorage.getItem('token');
+        const response = await fetch(downloadPath, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (!response.ok) {
+          return null; // No edited version exists
+        }
+        
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+      } catch (err) {
+        return null; // No edited version exists
+      }
+    };
+    
+    // Load main reel if exists
+    if (results.main_reel) {
+      urls.main_reel = await createVideoBlobUrl('main_reel', null, true);
+      editedUrls.main_reel = await createEditedVideoBlobUrl('main_reel');
+    }
+    
+    // Load medium reels
+    if (results.medium_reels && results.medium_reels.length > 0) {
+      urls.medium_reels = [];
+      editedUrls.medium_reels = [];
+      for (let i = 0; i < results.medium_reels.length; i++) {
+        urls.medium_reels[i] = await createVideoBlobUrl('medium_reel', i, true);
+        // Only try to load edited version if it exists (will return null if not)
+        editedUrls.medium_reels[i] = await createEditedVideoBlobUrl('medium_reel', i);
+      }
+    }
+    
+    // Load short reels
+    if (results.short_reels && results.short_reels.length > 0) {
+      urls.short_reels = [];
+      editedUrls.short_reels = [];
+      for (let i = 0; i < results.short_reels.length; i++) {
+        urls.short_reels[i] = await createVideoBlobUrl('short_reel', i, true);
+        editedUrls.short_reels[i] = await createEditedVideoBlobUrl('short_reel', i);
+      }
+    }
+    
+    setVideoUrls(urls);
+    setEditedVideoUrls(editedUrls);
+    
+    // After loading video URLs, check which ones are actually edited
+    // This ensures we only show edited videos that correspond to their originals
+    await checkEditedVideos(jobIdToLoad, results);
+  }, [checkEditedVideos]);
+
   // Check for active jobs on component mount (after refresh)
   useEffect(() => {
     const checkActiveJobs = async () => {
@@ -475,159 +628,6 @@ function ReelGenerator({ interactiveClothRef }) {
     
     setMetadata(metadataMap);
   };
-
-  // Load video URLs using authenticated fetch and create blob URLs
-  const loadVideoUrls = useCallback(async (jobIdToLoad, results) => {
-    const urls = {};
-    const editedUrls = {};
-    
-    // Helper function to fetch video and create blob URL
-    const createVideoBlobUrl = async (fileType, index = null, useOriginal = true) => {
-      try {
-        let downloadPath;
-        if (index !== null) {
-          downloadPath = `${API_BASE_URL}/api/job/${jobIdToLoad}/download/${fileType}_${index}${useOriginal ? '?original=true' : ''}`;
-        } else {
-          downloadPath = `${API_BASE_URL}/api/job/${jobIdToLoad}/download/${fileType}${useOriginal ? '?original=true' : ''}`;
-        }
-        
-        const token = localStorage.getItem('token');
-        const response = await fetch(downloadPath, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const blob = await response.blob();
-        return URL.createObjectURL(blob);
-      } catch (err) {
-        console.error(`Error loading video ${fileType}${index !== null ? `_${index}` : ''}:`, err);
-        return null;
-      }
-    };
-    
-    // Helper function to fetch edited video
-    const createEditedVideoBlobUrl = async (fileType, index = null) => {
-      try {
-        let downloadPath;
-        const editedFileType = `${fileType}_edited`;
-        if (index !== null) {
-          downloadPath = `${API_BASE_URL}/api/job/${jobIdToLoad}/download/${editedFileType}_${index}`;
-        } else {
-          downloadPath = `${API_BASE_URL}/api/job/${jobIdToLoad}/download/${editedFileType}`;
-        }
-        
-        const token = localStorage.getItem('token');
-        const response = await fetch(downloadPath, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        
-        if (!response.ok) {
-          return null; // No edited version exists
-        }
-        
-        const blob = await response.blob();
-        return URL.createObjectURL(blob);
-      } catch (err) {
-        return null; // No edited version exists
-      }
-    };
-    
-    // Load main reel if exists
-    if (results.main_reel) {
-      urls.main_reel = await createVideoBlobUrl('main_reel', null, true);
-      editedUrls.main_reel = await createEditedVideoBlobUrl('main_reel');
-    }
-    
-    // Load medium reels
-    if (results.medium_reels && results.medium_reels.length > 0) {
-      urls.medium_reels = [];
-      editedUrls.medium_reels = [];
-      for (let i = 0; i < results.medium_reels.length; i++) {
-        urls.medium_reels[i] = await createVideoBlobUrl('medium_reel', i, true);
-        // Only try to load edited version if it exists (will return null if not)
-        editedUrls.medium_reels[i] = await createEditedVideoBlobUrl('medium_reel', i);
-      }
-    }
-    
-    // Load short reels
-    if (results.short_reels && results.short_reels.length > 0) {
-      urls.short_reels = [];
-      editedUrls.short_reels = [];
-      for (let i = 0; i < results.short_reels.length; i++) {
-        urls.short_reels[i] = await createVideoBlobUrl('short_reel', i, true);
-        editedUrls.short_reels[i] = await createEditedVideoBlobUrl('short_reel', i);
-      }
-    }
-    
-    setVideoUrls(urls);
-    setEditedVideoUrls(editedUrls);
-    
-    // After loading video URLs, check which ones are actually edited
-    // This ensures we only show edited videos that correspond to their originals
-    await checkEditedVideos(jobIdToLoad, results);
-  }, [checkEditedVideos]);
-
-  // Check which videos have been edited
-  const checkEditedVideos = useCallback(async (jobIdToCheck, results) => {
-    const edited = {};
-    const token = localStorage.getItem('token');
-    
-    try {
-      // Check main reel
-      if (results.main_reel) {
-        const response = await fetch(`${API_BASE_URL}/api/job/${jobIdToCheck}/is_edited?video_type=main_reel`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          edited.main_reel = data.is_edited;
-        }
-      }
-      
-      // Check medium reels
-      if (results.medium_reels && results.medium_reels.length > 0) {
-        edited.medium_reel = [];
-        for (let i = 0; i < results.medium_reels.length; i++) {
-          const response = await fetch(`${API_BASE_URL}/api/job/${jobIdToCheck}/is_edited?video_type=medium_reel&video_index=${i}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (response.ok) {
-            const data = await response.json();
-            edited.medium_reel[i] = data.is_edited;
-          } else {
-            edited.medium_reel[i] = false;
-          }
-        }
-      }
-      
-      // Check short reels
-      if (results.short_reels && results.short_reels.length > 0) {
-        edited.short_reel = [];
-        for (let i = 0; i < results.short_reels.length; i++) {
-          const response = await fetch(`${API_BASE_URL}/api/job/${jobIdToCheck}/is_edited?video_type=short_reel&video_index=${i}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (response.ok) {
-            const data = await response.json();
-            edited.short_reel[i] = data.is_edited;
-          } else {
-            edited.short_reel[i] = false;
-          }
-        }
-      }
-      
-      setEditedVideos(edited);
-    } catch (error) {
-      console.error('Error checking edited videos:', error);
-    }
-  }, []);
 
   // Cleanup blob URLs when component unmounts or job changes
   useEffect(() => {

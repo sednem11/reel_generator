@@ -37,7 +37,6 @@ function QuickEditModal({ isOpen, onClose, videoUrl, videoType, videoIndex, jobI
   const timelineRef = useRef(null);
   const frameCanvasRef = useRef(null);
   const videoContainerRef = useRef(null);
-  const greenFlashRef = useRef(null);
 
   // Generate thumbnail frames for timeline
   const generateTimelineFrames = useCallback(async () => {
@@ -603,9 +602,7 @@ function QuickEditModal({ isOpen, onClose, videoUrl, videoType, videoIndex, jobI
   const generateWastedSound = useCallback(() => playStingerSound('Wasted'), [playStingerSound]);
   const generateErrorSound = useCallback(() => playStingerSound('error'), [playStingerSound]);
   
-  // Legacy - map to new sounds
-  const generateClingSound = () => playStingerSound('bell');
-  // Removed unused functions: generateDisappointmentSound, generateShockSound, generateConfirmationSound, generateTypingSound, generateChingSound, triggerGreenFlash
+  // Removed unused functions: generateDisappointmentSound, generateShockSound, generateConfirmationSound, generateTypingSound, generateChingSound, triggerGreenFlash, generateClingSound
 
   // Play sound events when video reaches their time
   useEffect(() => {
