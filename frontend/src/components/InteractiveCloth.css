@@ -1,0 +1,13 @@
+.interactive-cloth-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1; /* Above wave layer (z-index: 0) but below content */
+  pointer-events: none;
+  mix-blend-mode: screen; /* Creates a nice blending effect */
+  opacity: 1;
+  will-change: transform;
+}
+
