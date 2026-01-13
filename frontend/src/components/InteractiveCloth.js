@@ -133,7 +133,7 @@ const InteractiveCloth = forwardRef((props, ref) => {
 
     // Ripple settings
     const rippleDistance = 18.75; // Number of squares ripples travel (0.75x of 25)
-    const rippleSpacing = 5; // Minimum distance between new ripples (increased to reduce ripple count)
+    // const rippleSpacing = 5; // Minimum distance between new ripples (increased to reduce ripple count) - unused
     const rippleSpeed = 0.4; // How fast ripples propagate (faster: 0.15 -> 0.4)
     const maxRipples = 60; // Maximum number of active ripples (reduced for performance)
 
@@ -567,9 +567,6 @@ const InteractiveCloth = forwardRef((props, ref) => {
                   waveIntensity = 1.0 - normalizedDistFromRim * 0.3; // Slight fade outward
                 }
               
-                // Normalize Z-height to 0-1 range for visual effect (but keep original for calculations)
-                const normalizedZ = (zHeight + 2) / 6; // Maps -2 to 4 -> 0 to 1
-                
                 // Apply overall ripple intensity and wave pattern
                 let cellIntensity = ripple.intensity * Math.max(0, Math.min(1, waveIntensity));
                 
@@ -600,7 +597,6 @@ const InteractiveCloth = forwardRef((props, ref) => {
                 // Check for collisions with other ripples at this cell
                 // Age-based collision fading: similar age = complete fade, different age = partial fade
                 let collisionFade = 1.0; // No collision by default
-                const currentTime = Date.now();
                 const existingRippleTime = grid[y][x].rippleTime || 0;
                 
                 // Check collisions if intensity is significant and there's an existing ripple

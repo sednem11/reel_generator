@@ -104,9 +104,10 @@ function QuickEditModal({ isOpen, onClose, videoUrl, videoType, videoIndex, jobI
   // Generate frames only once when video metadata loads
   useEffect(() => {
     if (videoRef.current && !framesGenerated) {
+      const video = videoRef.current; // Capture ref value at effect start
       const handleLoadedMetadata = () => {
-        if (videoRef.current && videoRef.current.duration) {
-          const duration = videoRef.current.duration;
+        if (video && video.duration) {
+          const duration = video.duration;
           setVideoDuration(duration);
           // Generate frames only once after a short delay to ensure video is ready
           if (!framesGenerated) {
@@ -118,15 +119,14 @@ function QuickEditModal({ isOpen, onClose, videoUrl, videoType, videoIndex, jobI
         }
       };
 
-      videoRef.current.addEventListener('loadedmetadata', handleLoadedMetadata);
+      video.addEventListener('loadedmetadata', handleLoadedMetadata);
       
       // Also check if metadata is already loaded
-      if (videoRef.current.readyState >= 1 && videoRef.current.duration) {
+      if (video.readyState >= 1 && video.duration) {
         handleLoadedMetadata();
       }
       
       return () => {
-        const video = videoRef.current;
         if (video) {
           video.removeEventListener('loadedmetadata', handleLoadedMetadata);
         }
@@ -548,7 +548,6 @@ function QuickEditModal({ isOpen, onClose, videoUrl, videoType, videoIndex, jobI
   // Play stinger sounds from audio files only
   const playStingerSound = useCallback((soundName) => {
     const audioExts = ['.mp3', '.wav', '.m4a'];
-    let triedIndex = 0;
     
     // Function to try playing with a specific extension index
     const tryExtension = (index) => {
@@ -606,27 +605,7 @@ function QuickEditModal({ isOpen, onClose, videoUrl, videoType, videoIndex, jobI
   
   // Legacy - map to new sounds
   const generateClingSound = () => playStingerSound('bell');
-  const generateDisappointmentSound = () => playStingerSound('Wasted');
-  const generateShockSound = () => playStingerSound('error');
-  const generateConfirmationSound = () => playStingerSound('ding');
-
-  // Legacy aliases for backward compatibility
-  const generateTypingSound = generatePopSound; // Pop for typing
-  const generateChingSound = generateClingSound; // Cling for ching/certified
-
-  // Trigger green screen flash
-  const triggerGreenFlash = () => {
-    if (!greenFlashRef.current) return;
-    
-    const flashElement = greenFlashRef.current;
-    flashElement.style.opacity = '1';
-    flashElement.style.transition = 'opacity 0.1s ease-out';
-    
-    setTimeout(() => {
-      flashElement.style.opacity = '0';
-      flashElement.style.transition = 'opacity 0.2s ease-out';
-    }, 100); // Flash for 100ms
-  };
+  // Removed unused functions: generateDisappointmentSound, generateShockSound, generateConfirmationSound, generateTypingSound, generateChingSound, triggerGreenFlash
 
   // Play sound events when video reaches their time
   useEffect(() => {
@@ -690,14 +669,6 @@ function QuickEditModal({ isOpen, onClose, videoUrl, videoType, videoIndex, jobI
       video.removeEventListener('timeupdate', handleTimeUpdate);
     };
   }, [soundEvents, isOpen, playStingerSound]);
-
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = (seconds % 60);
-    const secsInt = Math.floor(secs);
-    const secsDec = Math.round((secs - secsInt) * 10);
-    return `${mins}:${secsInt.toString().padStart(2, '0')}.${secsDec}`;
-  };
 
   // Reset frame generation when modal opens with new video
   useEffect(() => {

@@ -100,7 +100,7 @@ function VideoStylingModal({ isOpen, onClose, fontStyle, fontColor, onFontStyleC
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [isOpen, fontStyle, fontColor]); // Restart animation when style/color changes
+  }, [isOpen, fontStyle, fontColor, allWords]); // Restart animation when style/color changes
 
   // Early return after hooks
   if (!isOpen) return null;

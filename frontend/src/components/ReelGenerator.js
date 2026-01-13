@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './ReelGenerator.css';
 import axios from 'axios';
@@ -126,7 +126,7 @@ function ReelGenerator({ interactiveClothRef }) {
     };
 
     checkActiveJobs();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, loadVideoUrls]);
 
   // Poll for job status
   useEffect(() => {
@@ -207,7 +207,7 @@ function ReelGenerator({ interactiveClothRef }) {
         }
       };
     }
-  }, [jobId, loading]);
+  }, [jobId, loading, loadVideoUrls]);
 
   const handleCancel = async () => {
     if (!jobId) return;
@@ -477,7 +477,7 @@ function ReelGenerator({ interactiveClothRef }) {
   };
 
   // Load video URLs using authenticated fetch and create blob URLs
-  const loadVideoUrls = async (jobIdToLoad, results) => {
+  const loadVideoUrls = useCallback(async (jobIdToLoad, results) => {
     const urls = {};
     const editedUrls = {};
     
@@ -572,10 +572,10 @@ function ReelGenerator({ interactiveClothRef }) {
     // After loading video URLs, check which ones are actually edited
     // This ensures we only show edited videos that correspond to their originals
     await checkEditedVideos(jobIdToLoad, results);
-  };
+  }, [checkEditedVideos]);
 
   // Check which videos have been edited
-  const checkEditedVideos = async (jobIdToCheck, results) => {
+  const checkEditedVideos = useCallback(async (jobIdToCheck, results) => {
     const edited = {};
     const token = localStorage.getItem('token');
     
@@ -627,7 +627,7 @@ function ReelGenerator({ interactiveClothRef }) {
     } catch (error) {
       console.error('Error checking edited videos:', error);
     }
-  };
+  }, []);
 
   // Cleanup blob URLs when component unmounts or job changes
   useEffect(() => {
