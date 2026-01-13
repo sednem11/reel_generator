@@ -22,11 +22,13 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const fetchUserData = async () => {
       if (token) {
+        console.log('Setting up axios with token, API_BASE_URL:', API_BASE_URL);
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         localStorage.setItem('token', token);
         // Fetch user info
         await fetchUser();
       } else {
+        console.log('No token, clearing auth');
         delete axios.defaults.headers.common['Authorization'];
         localStorage.removeItem('token');
         setUser(null);
@@ -58,7 +60,10 @@ export const AuthProvider = ({ children }) => {
 
   const fetchUser = async () => {
     try {
+      console.log('Fetching user from:', `${API_BASE_URL}/api/auth/me`);
+      console.log('Token exists:', !!token);
       const response = await axios.get(`${API_BASE_URL}/api/auth/me`);
+      console.log('User data received:', response.data);
       setUser({
         user_id: response.data.user_id,
         credit: response.data.credit,
@@ -66,8 +71,20 @@ export const AuthProvider = ({ children }) => {
       });
     } catch (error) {
       console.error('Error fetching user:', error);
-      setToken(null);
-      setUser(null);
+      console.error('Error response:', error.response);
+      console.error('Error status:', error.response?.status);
+      console.error('Error data:', error.response?.data);
+      
+      // Don't immediately log out on 400/500 errors - might be temporary
+      // Only log out on 401 (unauthorized)
+      if (error.response?.status === 401) {
+        console.log('401 Unauthorized - logging out');
+        setToken(null);
+        setUser(null);
+      } else {
+        // For other errors, keep the token but show error
+        console.warn('Non-401 error when fetching user, keeping token');
+      }
     } finally {
       setLoading(false);
     }

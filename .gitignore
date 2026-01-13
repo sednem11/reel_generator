@@ -19,3 +19,11 @@ ENV/
 .env
 .env.local
 .env.*.local
+
+# Video files and job files - too large for git
+*.mp4
+*.avi
+*.mov
+*.mkv
+job_*_video.mp4
+job_*_audio.mp3
