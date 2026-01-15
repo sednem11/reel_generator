@@ -505,60 +505,75 @@ function ReelGenerator({ interactiveClothRef }) {
       let response;
       
       if (inputMethod === 'url') {
-        setStatus('Downloading video on your device...');
-        setProgress('');
-
-        let downloadResponse;
         try {
-          downloadResponse = await fetch(url, { signal: controller.signal });
-        } catch (fetchError) {
-          if (isYouTubeUrl(url)) {
-            throw new Error('YouTube links are not supported for server-side downloads. Please upload the file or provide a direct video file URL.');
+          setStatus('Downloading video on your device...');
+          setProgress('');
+
+          let downloadResponse;
+          try {
+            downloadResponse = await fetch(url, { signal: controller.signal });
+          } catch (fetchError) {
+            throw new Error('We could not download this link in your browser. This usually means the host blocks cross-origin downloads (CORS) or the URL is not a direct file.');
           }
-          throw new Error('We could not download this link in your browser. This usually means the host blocks cross-origin downloads (CORS) or the URL is not a direct file.');
-        }
 
-        if (!downloadResponse.ok) {
-          if (isYouTubeUrl(url)) {
-            throw new Error('YouTube links are not supported for server-side downloads. Please upload the file or provide a direct video file URL.');
+          if (!downloadResponse.ok) {
+            throw new Error(`We could not download this link in your browser (HTTP ${downloadResponse.status}). Make sure the URL is a direct video file and allows cross-origin downloads.`);
           }
-          throw new Error(`We could not download this link in your browser (HTTP ${downloadResponse.status}). Make sure the URL is a direct video file and allows cross-origin downloads.`);
-        }
 
-        const blob = await downloadResponse.blob();
-        const contentType = downloadResponse.headers.get('Content-Type') || blob.type || 'video/mp4';
-        if (!contentType.startsWith('video/')) {
-          throw new Error('This link does not look like a direct video file. Please use a direct file URL or upload the file instead.');
-        }
-
-        let fileName = 'video.mp4';
-        try {
-          const urlPath = new URL(url).pathname;
-          const pathName = urlPath.split('/').pop();
-          if (pathName) {
-            fileName = pathName;
+          const blob = await downloadResponse.blob();
+          const contentType = downloadResponse.headers.get('Content-Type') || blob.type || 'video/mp4';
+          if (!contentType.startsWith('video/')) {
+            throw new Error('This link does not look like a direct video file. Please use a direct file URL or upload the file instead.');
           }
-        } catch (e) {
-          // Keep default filename if URL parsing fails.
+
+          let fileName = 'video.mp4';
+          try {
+            const urlPath = new URL(url).pathname;
+            const pathName = urlPath.split('/').pop();
+            if (pathName) {
+              fileName = pathName;
+            }
+          } catch (e) {
+            // Keep default filename if URL parsing fails.
+          }
+
+          const downloadFile = new File([blob], fileName, { type: contentType });
+
+          setStatus('Uploading video...');
+          const formData = new FormData();
+          formData.append('video_file', downloadFile);
+          formData.append('quality', quality);
+          formData.append('remove_watermark', removeWatermark);
+          formData.append('video_types', videoTypes);
+          formData.append('font_style', fontStyle);
+          formData.append('font_color', fontColor);
+
+          response = await axios.post(`${API_BASE_URL}/api/process/upload`, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data'
+            },
+            signal: controller.signal
+          });
+        } catch (clientDownloadError) {
+          if (isCancellingRef.current) {
+            throw clientDownloadError;
+          }
+
+          setStatus('Browser download failed. Trying server-side download...');
+          response = await axios.post(`${API_BASE_URL}/api/process`, {
+            youtube_url: url,
+            quality: quality,
+            remove_watermark: removeWatermark,
+            video_types: videoTypes,
+            font_style: fontStyle,
+            font_color: fontColor
+          }, {
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            signal: controller.signal
+          });
         }
-
-        const downloadFile = new File([blob], fileName, { type: contentType });
-
-        setStatus('Uploading video...');
-        const formData = new FormData();
-        formData.append('video_file', downloadFile);
-        formData.append('quality', quality);
-        formData.append('remove_watermark', removeWatermark);
-        formData.append('video_types', videoTypes);
-        formData.append('font_style', fontStyle);
-        formData.append('font_color', fontColor);
-
-        response = await axios.post(`${API_BASE_URL}/api/process/upload`, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          },
-          signal: controller.signal
-        });
       } else {
         // New file upload method
         if (!uploadedFile) {
