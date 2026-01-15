@@ -505,13 +505,6 @@ function ReelGenerator({ interactiveClothRef }) {
       let response;
       
       if (inputMethod === 'url') {
-        if (isYouTubeUrl(url)) {
-          setLoading(false);
-          setError('YouTube links are not supported for server-side downloads. Please upload the file or provide a direct video file URL.');
-          setStatus('');
-          return;
-        }
-
         setStatus('Downloading video on your device...');
         setProgress('');
 
@@ -519,10 +512,16 @@ function ReelGenerator({ interactiveClothRef }) {
         try {
           downloadResponse = await fetch(url, { signal: controller.signal });
         } catch (fetchError) {
+          if (isYouTubeUrl(url)) {
+            throw new Error('YouTube links are not supported for server-side downloads. Please upload the file or provide a direct video file URL.');
+          }
           throw new Error('We could not download this link in your browser. This usually means the host blocks cross-origin downloads (CORS) or the URL is not a direct file.');
         }
 
         if (!downloadResponse.ok) {
+          if (isYouTubeUrl(url)) {
+            throw new Error('YouTube links are not supported for server-side downloads. Please upload the file or provide a direct video file URL.');
+          }
           throw new Error(`We could not download this link in your browser (HTTP ${downloadResponse.status}). Make sure the URL is a direct video file and allows cross-origin downloads.`);
         }
 
