@@ -32,7 +32,7 @@ function Login() {
       // Navigate after a short delay to allow AuthContext to initialize
       // The ProtectedRoute will show loading spinner while user data is fetched
       setTimeout(() => {
-        navigate('/', { replace: true });
+      navigate('/', { replace: true });
       }, 100);
     }
   }, [searchParams, setTokenFromOAuth, navigate]);

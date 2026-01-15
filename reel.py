@@ -9,11 +9,12 @@ from youtube_transcript_api._errors import (
     RequestBlocked
 )
 import time
-from pytube import YouTube
 from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips, TextClip
 import openai
 import json
 import subprocess
+from urllib.parse import urlparse
+import requests
 import os
 import re
 import tempfile
@@ -479,480 +480,119 @@ def get_transcript_with_whisper(video_file, model_name="base", language=None):
         return None, None
 
 
-def get_ytdlp_format(quality="hd"):
+YOUTUBE_HOSTS = {
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "music.youtube.com",
+    "youtu.be",
+}
+
+
+def is_youtube_url(url: str) -> bool:
+    """Return True if the URL points to YouTube."""
+    try:
+        parsed = urlparse(url)
+        host = parsed.netloc.lower()
+        return host in YOUTUBE_HOSTS
+    except Exception:
+        return False
+
+
+def is_direct_video_url(url: str) -> bool:
+    """Best-effort check for direct video file URLs."""
+    try:
+        path = urlparse(url).path
+        ext = os.path.splitext(path)[1].lower()
+        return ext in {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
+    except Exception:
+        return False
+
+
+def download_direct_file(url: str, filename: str, check_cancelled=None) -> str:
     """
-    Get yt-dlp format string based on quality preference.
-    Simple, reliable format selection that works for most videos.
-    
-    Args:
-        quality: "normal", "hd", or "full_hd"
-    
-    Returns:
-        Format string for yt-dlp
+    Download a direct video file URL using streaming HTTP.
+    Only supports direct file URLs; no site scraping.
     """
-    formats = {
-        "normal": "best[height<=480]/best",
-        "hd": "best[height<=720]/best",
-        "full_hd": "best[height<=1080]/best"
-    }
-    return formats.get(quality, formats["hd"])
+    http_proxy = os.getenv("YOUTUBE_PROXY_HTTP")
+    https_proxy = os.getenv("YOUTUBE_PROXY_HTTPS")
+    proxy_url = https_proxy or http_proxy
+    proxies = None
+    if proxy_url:
+        proxies = {"http": http_proxy or proxy_url, "https": https_proxy or proxy_url}
+
+    response = requests.get(url, stream=True, timeout=(10, 30), proxies=proxies)
+    response.raise_for_status()
+
+    content_type = response.headers.get("Content-Type", "").lower()
+    if not is_direct_video_url(url):
+        if not content_type.startswith("video/") and content_type not in {"application/octet-stream"}:
+            raise ValueError("URL must point to a direct video file.")
+
+    with open(filename, "wb") as output_file:
+        for chunk in response.iter_content(chunk_size=8 * 1024 * 1024):
+            if check_cancelled and check_cancelled():
+                raise InterruptedError("Download cancelled by user")
+            if chunk:
+                output_file.write(chunk)
+
+    return filename
 
 
 def download_video(url, filename="base_video.mp4", max_retries=3, retry_delay=5, quality="hd"):
     """
-    Download YouTube video using yt-dlp (primary) or pytube (fallback).
-    Supports proxy configuration and retry logic with exponential backoff.
-    
-    Args:
-        url: Video URL to download
-        filename: Output filename
-        max_retries: Maximum number of retry attempts (default: 3)
-        retry_delay: Initial delay between retries in seconds (default: 5)
-    
-    Environment Variables:
-        YOUTUBE_PROXY_HTTP: HTTP proxy URL (e.g., http://user:pass@proxy.example.com:8080)
-        YOUTUBE_PROXY_HTTPS: HTTPS proxy URL (e.g., https://user:pass@proxy.example.com:8080)
-        If only one is provided, it will be used for both HTTP and HTTPS.
+    Download a direct video file URL.
+    YouTube URLs are not supported for server-side downloads.
     """
-    # Get proxy configuration from environment variables
-    http_proxy = os.getenv("YOUTUBE_PROXY_HTTP")
-    https_proxy = os.getenv("YOUTUBE_PROXY_HTTPS")
-    proxy_url = https_proxy or http_proxy  # Prefer HTTPS
-    
+    if is_youtube_url(url):
+        raise ValueError("YouTube URLs are not supported for server-side downloads. Please upload the file or provide a direct video file URL.")
+
     for attempt in range(max_retries):
         try:
-            # Try yt-dlp first (more reliable)
-            try:
-                print("📥 Downloading with yt-dlp...")
-                # yt-dlp downloads to current directory, so we specify output path
-                output_path = os.path.splitext(filename)[0]  # Remove extension, yt-dlp adds it
-                
-                # Get format based on quality preference
-                format_string = get_ytdlp_format(quality)
-                
-                # Optimize download settings based on quality
-                if quality == "full_hd":
-                    concurrent_fragments = "16"  # More parallel downloads for full HD
-                    chunk_size = "20M"  # Larger chunks for full HD
-                    throttled_rate = "50M"  # Higher throttle rate for full HD
-                elif quality == "hd":
-                    concurrent_fragments = "8"  # Moderate parallel downloads for HD
-                    chunk_size = "15M"
-                    throttled_rate = "20M"
-                else:  # normal
-                    concurrent_fragments = "4"
-                    chunk_size = "10M"
-                    throttled_rate = "10M"
-                
-                # Simple, reliable download - use best available format
-                yt_dlp_cmd = [
-                    "yt-dlp",
-                    "-f", format_string,
-                    "-o", output_path + ".%(ext)s",
-                    "--no-warnings",
-                    "--concurrent-fragments", concurrent_fragments,
-                    "--throttled-rate", throttled_rate,
-                    "--http-chunk-size", chunk_size,
-                ]
-                
-                # Add proxy if configured
-                if proxy_url:
-                    yt_dlp_cmd.extend(["--proxy", proxy_url])
-                    masked_proxy = proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url
-                    print(f"🔒 Using proxy for video download: ...@{masked_proxy}")
-                
-                yt_dlp_cmd.append(url)
-                
-                result = subprocess.run(
-                    yt_dlp_cmd,
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                
-                # Find the downloaded file
-                base_name = os.path.splitext(filename)[0]
-                for ext in ['.mp4', '.webm', '.mkv']:
-                    downloaded_file = base_name + ext
-                    if os.path.exists(downloaded_file):
-                        # Rename to desired filename if needed
-                        if downloaded_file != filename:
-                            os.rename(downloaded_file, filename)
-                        print("✅ Download complete!")
-                        return filename
-                
-                # If we can't find the file, raise an error
-                raise FileNotFoundError("Downloaded file not found")
-                
-            except subprocess.CalledProcessError as e:
-                # Show the actual error from yt-dlp
-                error_output = e.stderr if e.stderr else e.stdout
-                if error_output:
-                    # Extract key error messages
-                    error_lines = error_output.split('\n')
-                    key_errors = [line for line in error_lines if any(keyword in line.lower() for keyword in ['error', 'blocked', 'unavailable', 'private', 'restricted'])]
-                    if key_errors:
-                        error_msg = key_errors[0]
-                        print(f"⚠️  yt-dlp error: {error_msg}")
-                        
-                        # If format not available, try with "best" format (no restrictions)
-                        if "format is not available" in error_msg.lower() or "requested format" in error_msg.lower():
-                            print("🔄 Trying yt-dlp with 'best' format (no restrictions)...")
-                            try:
-                                yt_dlp_cmd_retry = [
-                                    "yt-dlp",
-                                    "-f", "best",
-                                    "-o", output_path + ".%(ext)s",
-                                    "--no-warnings",
-                                    "--concurrent-fragments", concurrent_fragments,
-                                    "--throttled-rate", throttled_rate,
-                                    "--http-chunk-size", chunk_size,
-                                ]
-                                
-                                if proxy_url:
-                                    yt_dlp_cmd_retry.extend(["--proxy", proxy_url])
-                                
-                                yt_dlp_cmd_retry.append(url)
-                                
-                                result = subprocess.run(
-                                    yt_dlp_cmd_retry,
-                                    capture_output=True,
-                                    text=True,
-                                    check=True
-                                )
-                                
-                                # Find the downloaded file
-                                base_name = os.path.splitext(filename)[0]
-                                for ext in ['.mp4', '.webm', '.mkv']:
-                                    downloaded_file = base_name + ext
-                                    if os.path.exists(downloaded_file):
-                                        if downloaded_file != filename:
-                                            os.rename(downloaded_file, filename)
-                                        print("✅ Download complete with 'best' format!")
-                                        return filename
-                                
-                                raise FileNotFoundError("Downloaded file not found")
-                            except Exception as retry_error:
-                                print(f"⚠️  Retry with 'best' format also failed: {retry_error}")
-                                print("🔄 Falling back to pytube...")
-                    else:
-                        print(f"⚠️  yt-dlp failed: {error_output[:200]}")  # First 200 chars
-                        print("🔄 Falling back to pytube...")
-                else:
-                    print(f"⚠️  yt-dlp failed with exit code {e.returncode}")
-                    print("🔄 Falling back to pytube...")
-            except FileNotFoundError as e:
-                print(f"⚠️  yt-dlp failed: {e}")
-                print("🔄 Falling back to pytube...")
-            
-            # Fallback to pytube (runs if yt-dlp fails)
-            try:
-                print("📥 Fetching video information with pytube...")
-                
-                # Configure proxy for pytube via environment variables
-                # pytube uses urllib/requests internally which will pick up these env vars
-                original_http_proxy = os.environ.get('HTTP_PROXY')
-                original_https_proxy = os.environ.get('HTTPS_PROXY')
-                original_http_proxy_lower = os.environ.get('http_proxy')
-                original_https_proxy_lower = os.environ.get('https_proxy')
-                
-                try:
-                    if proxy_url:
-                        # Set proxy environment variables for pytube
-                        if http_proxy:
-                            os.environ['HTTP_PROXY'] = http_proxy
-                            os.environ['http_proxy'] = http_proxy
-                        if https_proxy:
-                            os.environ['HTTPS_PROXY'] = https_proxy
-                            os.environ['https_proxy'] = https_proxy
-                        elif proxy_url:
-                            # Use single proxy for both if only one is set
-                            os.environ['HTTP_PROXY'] = proxy_url
-                            os.environ['HTTPS_PROXY'] = proxy_url
-                            os.environ['http_proxy'] = proxy_url
-                            os.environ['https_proxy'] = proxy_url
-                        print(f"🔒 Using proxy for pytube: ...@{proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url}")
-                    
-                    # Initialize YouTube with better error handling
-                    try:
-                        yt = YouTube(url, use_oauth=False, allow_oauth_cache=True)
-                    except Exception as init_error:
-                        # Try with bypass_age_gate enabled
-                        try:
-                            yt = YouTube(url, use_oauth=False, allow_oauth_cache=True)
-                            yt.bypass_age_gate()
-                        except Exception as bypass_error:
-                            raise Exception(f"Failed to initialize YouTube object: {str(init_error)}")
-                    
-                    # Check if video is available
-                    try:
-                        yt.check_availability()
-                    except Exception as avail_error:
-                        # Try to bypass age gate
-                        try:
-                            yt.bypass_age_gate()
-                        except Exception:
-                            # If bypass fails, try to continue anyway
-                            pass
-                    
-                    # Get streams with better error handling
-                    try:
-                        # Try progressive streams first (video + audio combined)
-                        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-                        
-                        # If no progressive stream, try any mp4 stream
-                        if stream is None:
-                            stream = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
-                        
-                        # If still no mp4, try any video stream
-                        if stream is None:
-                            stream = yt.streams.filter(only_video=False).order_by('resolution').desc().first()
-                        
-                        if stream is None:
-                            raise Exception("No suitable streams found for this video")
-                        
-                        print(f"📥 Downloading: {stream.resolution if hasattr(stream, 'resolution') else 'unknown'} quality")
-                        
-                        # Download with better error handling
-                        output_path = os.path.dirname(filename) if os.path.dirname(filename) else '.'
-                        downloaded_file = stream.download(output_path=output_path, filename=os.path.basename(filename))
-                        
-                        # Ensure the file has the correct name
-                        if downloaded_file != filename and os.path.exists(downloaded_file):
-                            if os.path.exists(filename):
-                                os.remove(filename)
-                            os.rename(downloaded_file, filename)
-                        
-                        print("✅ Download complete!")
-                        return filename
-                    except Exception as stream_error:
-                        # Provide more detailed error information
-                        error_details = str(stream_error)
-                        if "400" in error_details or "Bad Request" in error_details:
-                            raise Exception(f"YouTube API error (400): This may be due to YouTube blocking requests. Try using yt-dlp instead or check your proxy configuration. Original error: {error_details}")
-                        raise
-                    
-                finally:
-                    # Restore original proxy environment variables
-                    if original_http_proxy is not None:
-                        os.environ['HTTP_PROXY'] = original_http_proxy
-                    elif 'HTTP_PROXY' in os.environ:
-                        del os.environ['HTTP_PROXY']
-                    
-                    if original_https_proxy is not None:
-                        os.environ['HTTPS_PROXY'] = original_https_proxy
-                    elif 'HTTPS_PROXY' in os.environ:
-                        del os.environ['HTTPS_PROXY']
-                    
-                    if original_http_proxy_lower is not None:
-                        os.environ['http_proxy'] = original_http_proxy_lower
-                    elif 'http_proxy' in os.environ:
-                        del os.environ['http_proxy']
-                    
-                    if original_https_proxy_lower is not None:
-                        os.environ['https_proxy'] = original_https_proxy_lower
-                    elif 'https_proxy' in os.environ:
-                        del os.environ['https_proxy']
-            
-            except Exception as e:
-                error_msg = str(e)
-                print(f"❌ Error downloading video with pytube: {error_msg}")
-                # Re-raise to be caught by retry logic
-                raise
-            
-        except (subprocess.CalledProcessError, FileNotFoundError, Exception) as e:
-            # Check if we should retry
-            error_msg = str(e)
-            
-            # Don't retry on certain errors
-            if "No suitable MP4 streams" in error_msg or "Invalid YouTube URL" in error_msg:
-                raise
-            
-            # Retry on network errors, blocking, etc.
-            if attempt < max_retries - 1:
-                wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
-                print(f"⚠️  Download failed. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})")
-                time.sleep(wait_time)
-                continue
-            else:
-                # Final attempt failed - provide helpful error message
-                error_details = (
-                    "\n💡 Both yt-dlp and pytube failed after {max_retries} attempts. This is likely due to:\n"
-                    "   • YouTube blocking requests from this server's IP address (common with cloud providers)\n"
-                    "   • YouTube API changes requiring updates\n"
-                    "   • Video is age-restricted, private, or unavailable\n"
-                    "   • Network connectivity issues\n\n"
-                    "Solutions:\n"
-                    "   • Configure a proxy using YOUTUBE_PROXY_HTTP/HTTPS environment variables\n"
-                    "   • Check if the video is publicly accessible in a browser\n"
-                    "   • Wait a few minutes and try again\n"
-                    "   • Try a different video URL\n"
-                    "   • See PROXY_CONFIG.md for proxy service recommendations"
-                ).format(max_retries=max_retries)
-                print(error_details)
-                raise Exception(f"Video download failed after {max_retries} attempts: {error_msg}\n{error_details}")
-    
-    # Should never reach here, but just in case
-    raise Exception("Video download failed: Unknown error")
-
-
-def download_video_with_cancellation(url, filename="base_video.mp4", max_retries=3, retry_delay=5, quality="hd", check_cancelled=None, process_handle_ref=None):
-    """
-    Download YouTube video with cancellation support.
-    Same as download_video but supports cancellation checks and process handle storage.
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    # Get proxy configuration from environment variables
-    http_proxy = os.getenv("YOUTUBE_PROXY_HTTP")
-    https_proxy = os.getenv("YOUTUBE_PROXY_HTTPS")
-    proxy_url = https_proxy or http_proxy  # Prefer HTTPS
-    
-    for attempt in range(max_retries):
-        # Check cancellation before each attempt
-        if check_cancelled and check_cancelled():
-            logger.info("Download cancelled before starting")
-            raise InterruptedError("Download cancelled by user")
-        
-        try:
-            # Try yt-dlp first (more reliable)
-            try:
-                print("📥 Downloading with yt-dlp...")
-                output_path = os.path.splitext(filename)[0]
-                format_string = get_ytdlp_format(quality)
-                
-                # Optimize download settings based on quality
-                if quality == "full_hd":
-                    concurrent_fragments = "16"
-                    chunk_size = "20M"
-                    throttled_rate = "50M"
-                elif quality == "hd":
-                    concurrent_fragments = "8"
-                    chunk_size = "15M"
-                    throttled_rate = "20M"
-                else:  # normal
-                    concurrent_fragments = "4"
-                    chunk_size = "10M"
-                    throttled_rate = "10M"
-                
-                yt_dlp_cmd = [
-                    "yt-dlp",
-                    "-f", format_string,
-                    "-o", output_path + ".%(ext)s",
-                    "--no-warnings",
-                    "--concurrent-fragments", concurrent_fragments,
-                    "--throttled-rate", throttled_rate,
-                    "--http-chunk-size", chunk_size,
-                ]
-                
-                if proxy_url:
-                    yt_dlp_cmd.extend(["--proxy", proxy_url])
-                    masked_proxy = proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url
-                    print(f"🔒 Using proxy for video download: ...@{masked_proxy}")
-                
-                yt_dlp_cmd.append(url)
-                
-                # Use Popen instead of run to allow cancellation
-                # Don't capture output to prevent blocking - let it go to terminal
-                process = subprocess.Popen(
-                    yt_dlp_cmd,
-                    stdout=None,  # Let output go to terminal
-                    stderr=None,  # Let errors go to terminal
-                    text=True
-                )
-                
-                # Store process handle if callback provided
-                if process_handle_ref:
-                    try:
-                        process_handle_ref(process)
-                    except Exception as e:
-                        logger.warning(f"Error storing process handle: {e}")
-                
-                # Wait for process with periodic cancellation checks
-                start_time = time.time()
-                last_progress_time = start_time
-                while True:
-                    # Check for cancellation
-                    if check_cancelled and check_cancelled():
-                        logger.info("Download cancelled, terminating process...")
-                        process.terminate()
-                        try:
-                            process.wait(timeout=5)
-                        except subprocess.TimeoutExpired:
-                            process.kill()
-                        raise InterruptedError("Download cancelled by user")
-                    
-                    # Check if process finished
-                    if process.poll() is not None:
-                        break
-                    
-                    # Show progress every 10 seconds to indicate it's still working
-                    current_time = time.time()
-                    if current_time - last_progress_time >= 10:
-                        elapsed = int(current_time - start_time)
-                        print(f"⏳ Download in progress... ({elapsed}s elapsed)")
-                        last_progress_time = current_time
-                    
-                    # Wait a bit before checking again
-                    time.sleep(0.5)
-                
-                # Check return code
-                if process.returncode != 0:
-                    raise subprocess.CalledProcessError(process.returncode, yt_dlp_cmd, None, None)
-                
-                # Find the downloaded file
-                base_name = os.path.splitext(filename)[0]
-                for ext in ['.mp4', '.webm', '.mkv']:
-                    downloaded_file = base_name + ext
-                    if os.path.exists(downloaded_file):
-                        if downloaded_file != filename:
-                            os.rename(downloaded_file, filename)
-                        print("✅ Download complete!")
-                        return filename
-                
-                raise FileNotFoundError("Downloaded file not found")
-                
-            except InterruptedError:
-                # Re-raise cancellation errors immediately
-                raise
-            except subprocess.CalledProcessError as e:
-                # Show the actual error from yt-dlp
-                error_output = e.stderr if e.stderr else e.stdout
-                if error_output:
-                    error_lines = error_output.split('\n')
-                    key_errors = [line for line in error_lines if any(keyword in line.lower() for keyword in ['error', 'blocked', 'unavailable', 'private', 'restricted'])]
-                    if key_errors:
-                        error_msg = key_errors[0]
-                        print(f"⚠️  yt-dlp error: {error_msg}")
-                
-                # If yt-dlp fails, fall through to pytube
-                raise
-                
+            print("📥 Downloading direct video file...")
+            return download_direct_file(url, filename)
         except InterruptedError:
-            # Re-raise cancellation immediately
             raise
-        except (subprocess.CalledProcessError, FileNotFoundError, Exception) as e:
-            # Check cancellation before retrying
-            if check_cancelled and check_cancelled():
-                raise InterruptedError("Download cancelled by user")
-            
+        except Exception as e:
             error_msg = str(e)
-            
-            # Don't retry on certain errors
-            if "No suitable MP4 streams" in error_msg or "Invalid YouTube URL" in error_msg:
-                raise
-            
-            # Retry on network errors, blocking, etc.
             if attempt < max_retries - 1:
                 wait_time = retry_delay * (2 ** attempt)
                 print(f"⚠️  Download failed. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})")
                 time.sleep(wait_time)
                 continue
-            else:
-                raise Exception(f"Video download failed after {max_retries} attempts: {error_msg}")
-    
-    raise Exception("Video download failed: Unknown error")
+            raise Exception(f"Direct download failed after {max_retries} attempts: {error_msg}")
+
+
+def download_video_with_cancellation(url, filename="base_video.mp4", max_retries=3, retry_delay=5, quality="hd", check_cancelled=None, process_handle_ref=None):
+    """
+    Download a direct video file URL with cancellation support.
+    Same as download_video but supports cancellation checks.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    if is_youtube_url(url):
+        raise ValueError("YouTube URLs are not supported for server-side downloads. Please upload the file or provide a direct video file URL.")
+
+    for attempt in range(max_retries):
+        if check_cancelled and check_cancelled():
+            logger.info("Download cancelled before starting")
+            raise InterruptedError("Download cancelled by user")
+
+        try:
+            print("📥 Downloading direct video file...")
+            return download_direct_file(url, filename, check_cancelled=check_cancelled)
+        except InterruptedError:
+            raise
+        except Exception as e:
+            if check_cancelled and check_cancelled():
+                raise InterruptedError("Download cancelled by user")
+            error_msg = str(e)
+            if attempt < max_retries - 1:
+                wait_time = retry_delay * (2 ** attempt)
+                print(f"⚠️  Download failed. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+                continue
+            raise Exception(f"Direct download failed after {max_retries} attempts: {error_msg}")
 
 
 def get_word_timestamps_with_llm(text, snippet_start, snippet_end):

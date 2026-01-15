@@ -566,7 +566,7 @@ const InteractiveCloth = forwardRef((props, ref) => {
                   zHeight = 4 - normalizedDistFromRim * 2; // Fade from 4 to 2
                   waveIntensity = 1.0 - normalizedDistFromRim * 0.3; // Slight fade outward
                 }
-              
+                
                 // Apply overall ripple intensity and wave pattern
                 let cellIntensity = ripple.intensity * Math.max(0, Math.min(1, waveIntensity));
                 

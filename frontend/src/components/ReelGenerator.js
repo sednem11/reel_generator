@@ -444,6 +444,15 @@ function ReelGenerator({ interactiveClothRef }) {
     }
   };
 
+  const isYouTubeUrl = (value) => {
+    try {
+      const host = new URL(value).hostname.toLowerCase();
+      return host === 'youtube.com' || host === 'www.youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com' || host === 'youtu.be';
+    } catch (err) {
+      return false;
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -496,60 +505,61 @@ function ReelGenerator({ interactiveClothRef }) {
       let response;
       
       if (inputMethod === 'url') {
-        // Use distributed processing with RAM detection
-        // For now, clips will be analyzed on server, but we detect RAM and report capabilities
-        // The server will use this info to optimize processing
-        try {
-          const jobInfo = await distributedProcessor.current.processVideoPackage(
-            url,
-            { medium: [], short: [] }, // Clips will be determined by server after analysis
-            quality,
-            removeWatermark,
-            videoTypes,
-            fontStyle,
-            fontColor,
-            (progress) => {
-              // Check if cancelled
-              if (isCancellingRef.current) {
-                throw new Error('Processing cancelled by user');
-              }
-              if (progress.type === 'ram_status') {
-                // Update progress with RAM info if needed
-                console.log('RAM Status:', progress);
-              } else if (progress.type === 'client_processing_start') {
-                setProgress(`Client processing ${progress.totalClips} clips...`);
-              }
-            }
-          );
-          
-          // Check if cancelled before setting jobId
-          if (isCancellingRef.current) {
-            return;
-          }
-          
-          response = { data: jobInfo };
-        } catch (distError) {
-          if (isCancellingRef.current || distError.message === 'Processing cancelled by user') {
-            setLoading(false);
-            setStatus('Processing cancelled');
-            return;
-          }
-          console.warn('Distributed processing failed, falling back to standard:', distError);
-          // Fallback to standard processing
-          response = await axios.post(`${API_BASE_URL}/api/process`, {
-            youtube_url: url,
-            quality: quality,
-            remove_watermark: removeWatermark,
-            video_types: videoTypes,
-            font_style: fontStyle,
-            font_color: fontColor
-          }, {
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            signal: controller.signal
-          });
+        if (isYouTubeUrl(url)) {
+          setLoading(false);
+          setError('YouTube links are not supported for server-side downloads. Please upload the file or provide a direct video file URL.');
+          setStatus('');
+          return;
         }
+
+        setStatus('Downloading video on your device...');
+        setProgress('');
+
+        let downloadResponse;
+        try {
+          downloadResponse = await fetch(url, { signal: controller.signal });
+        } catch (fetchError) {
+          throw new Error('We could not download this link in your browser. This usually means the host blocks cross-origin downloads (CORS) or the URL is not a direct file.');
+        }
+
+        if (!downloadResponse.ok) {
+          throw new Error(`We could not download this link in your browser (HTTP ${downloadResponse.status}). Make sure the URL is a direct video file and allows cross-origin downloads.`);
+        }
+
+        const blob = await downloadResponse.blob();
+        const contentType = downloadResponse.headers.get('Content-Type') || blob.type || 'video/mp4';
+        if (!contentType.startsWith('video/')) {
+          throw new Error('This link does not look like a direct video file. Please use a direct file URL or upload the file instead.');
+        }
+
+        let fileName = 'video.mp4';
+        try {
+          const urlPath = new URL(url).pathname;
+          const pathName = urlPath.split('/').pop();
+          if (pathName) {
+            fileName = pathName;
+          }
+        } catch (e) {
+          // Keep default filename if URL parsing fails.
+        }
+
+        const downloadFile = new File([blob], fileName, { type: contentType });
+
+        setStatus('Uploading video...');
+        const formData = new FormData();
+        formData.append('video_file', downloadFile);
+        formData.append('quality', quality);
+        formData.append('remove_watermark', removeWatermark);
+        formData.append('video_types', videoTypes);
+        formData.append('font_style', fontStyle);
+        formData.append('font_color', fontColor);
+
+        response = await axios.post(`${API_BASE_URL}/api/process/upload`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          },
+          signal: controller.signal
+        });
       } else {
         // New file upload method
         if (!uploadedFile) {

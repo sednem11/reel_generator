@@ -83,8 +83,8 @@ export const AuthProvider = ({ children }) => {
       // Only log out on 401 (unauthorized)
       if (error.response?.status === 401) {
         console.log('401 Unauthorized - logging out');
-        setToken(null);
-        setUser(null);
+      setToken(null);
+      setUser(null);
       } else {
         // For other errors, keep the token but show error
         console.warn('Non-401 error when fetching user, keeping token');

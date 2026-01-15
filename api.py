@@ -23,6 +23,7 @@ import asyncio
 # Import functions from reel.py
 from reel import (
     download_video,
+    is_youtube_url,
     get_transcript,
     get_transcript_with_whisper,
     analyze_transcript_with_llm,
@@ -54,7 +55,7 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title="Reel Generator API",
-    description="API for generating video reels from YouTube videos",
+    description="API for generating video reels from uploaded files or direct video URLs",
     version="1.0.0"
 )
 
@@ -2017,9 +2018,15 @@ async def process_video(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Start video processing job from YouTube URL (requires authentication)"""
+    """Start video processing job from a direct video URL (requires authentication)"""
     if not request.youtube_url:
         raise HTTPException(status_code=400, detail="youtube_url is required")
+
+    if is_youtube_url(request.youtube_url):
+        raise HTTPException(
+            status_code=400,
+            detail="YouTube URLs are not supported for server-side downloads. Please upload the file or provide a direct video file URL."
+        )
     
     # Refresh user to get latest data
     db.refresh(current_user)
@@ -2207,6 +2214,12 @@ async def process_distributed(
     """Process video with distributed server-client approach based on client RAM"""
     if not request.video_url:
         raise HTTPException(status_code=400, detail="video_url is required")
+
+    if is_youtube_url(request.video_url):
+        raise HTTPException(
+            status_code=400,
+            detail="YouTube URLs are not supported for server-side downloads. Please upload the file or provide a direct video file URL."
+        )
     
     # Refresh user to get latest data
     db.refresh(current_user)
